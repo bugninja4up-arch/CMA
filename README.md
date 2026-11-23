@@ -1,15 +1,20 @@
-# Anomaly-Engineer
+# CMA — Anomaly-Engineer
 
-An early-stage, evidence-driven security research assistant with an interactive command-line interface. It supports OpenAI-compatible providers, stores research notes in SQLite, and can load local Markdown skills.
+مساعد بحث أمني يعمل من سطر الأوامر، يستخدم أدوات Python محدودة ومراجعة يدويًا، ويحفظ سجل التفاعل محليًا في SQLite. ليس ماسحًا ذاتيًا ولا يثبت وجود ثغرة بمجرد ظهور إشارة.
 
-**Current status:** this is an early prototype, not an autonomous scanner. It now has a bounded HTTP differential tool and an offline JavaScript source analyzer. Browser automation and reconnaissance remain placeholders. Do not treat the assistant's hypotheses or scanner signals as confirmed findings.
+## القدرات الحالية
 
-## Requirements
+- **استطلاع صفحات HTML:** يجلب حتى 5 صفحات متتابعة على الأصل نفسه بطلبات GET، ويفهرس الروابط والعناوين ومراجع السكربتات وبيانات النماذج من دون إرسالها. لا يتبع التحويلات أو يرسل ملفات تعريف الارتباط، ويحذف query وfragment من الروابط المكتشفة، ويحد الاستجابة إلى 256 KiB لكل صفحة مع فاصل زمني بين الطلبات.
+- **فحص صفحة عبر Chromium (اختياري):** يرسل طلب GET واحدًا بعد حذف query وfragment، ثم يفحص نسخة HTML محدودة محليًا في Chromium. لا يشغّل JavaScript، ولا يجلب الموارد، ولا يتبع التحويلات، ولا يرسل النماذج. لا يُرجع محتوى الصفحة الخام. يلزم تثبيت Playwright وChromium لتشغيل هذه الأداة.
+- **مقارنة HTTP محدودة:** طلب أساسي واحد وما يصل إلى 3 استبدالات لأنواع قيم JSON (4 طلبات كحد أقصى)، مع GET أو POST فقط، وبدون ملفات تعريف ارتباط أو تحويلات، وأحجام ووقت انتظار محدودة. تُعاد بصمات الاستجابات لا أجسامها.
+- **تحليل JavaScript محلي:** يستخرج مسارات محتملة ومؤشرات أسرار من نص يقدمه المستخدم؛ لا يتصل بالشبكة ولا يعرض قيم الأسرار المحتملة.
 
-- Python 3.10 or newer
-- An API key for the chosen hosted provider, or a locally running Ollama instance with a suitable model
+الأدوات النشطة تحتاج موافقة المستخدم عند كل استدعاء، وتعمل فقط ضمن `scope` المهيأ. لا تُضف نطاقًا إلا إذا كان مصرحًا لك باختباره وفق سياسة البرنامج. النتائج مؤشرات وليست تقارير ثغرات مؤكدة. محتوى الصفحات ومخرجات الأدوات بيانات غير موثوقة.
 
-## Install and run
+## المتطلبات والتثبيت
+
+- Python 3.10 أو أحدث.
+- مفتاح لمزوّد متوافق مع OpenAI، أو خادم Ollama محلي.
 
 ```bash
 git clone https://github.com/bugninja4up-arch/CMA.git
@@ -17,24 +22,45 @@ cd CMA
 python3 -m venv .venv
 source .venv/bin/activate  # Windows: .venv\Scripts\activate
 python -m pip install -r requirements.txt
-export OPENAI_API_KEY="your-api-key"  # Windows PowerShell: $env:OPENAI_API_KEY="your-api-key"
+```
+
+لتمكين فحص الصفحة عبر Chromium:
+
+```bash
+python -m pip install -r requirements-browser.txt
+python -m playwright install chromium
+```
+
+إذا كان Chromium موجودًا في `PATH` فسيُستخدم؛ وإلا يعتمد Playwright على نسخته المثبتة. بعد ضبط `config.yaml`:
+
+```bash
+export OPENAI_API_KEY="your-api-key"  # PowerShell: $env:OPENAI_API_KEY="your-api-key"
 python main.py
 ```
 
-Configure the provider, model, scope, and database path in `config.yaml`. For DeepSeek use `DEEPSEEK_API_KEY`; for Ollama configure the local endpoint and model. Never commit real keys, private research notes, or the generated database.
+يمكن استخدام `DEEPSEEK_API_KEY` لمزوّد DeepSeek أو إعداد Ollama المحلي. لا تضع مفاتيح حقيقية في المستودع. تُحفظ التفاعلات في `evidence.db` افتراضيًا؛ لا تشارك قاعدة البيانات أو ملاحظات البحث الخاصة.
 
-The program stores interactions in `evidence.db` by default. Configure `scope` before testing; it is empty by default. Every analysis or active tool call requires human approval. The HTTP tool accepts only GET/POST, sends a baseline plus at most three JSON type substitutions, uses a 5-second timeout, caps request/response bodies, sends no cookies, and does not follow redirects. `allowed_domains` covers only standard HTTP(S) ports; put a nonstandard port in an exact `allowed_urls` entry. Responses are summarized as status and hashes, not returned as raw bodies. The JavaScript analyzer works only on supplied text and redacts potential secret values.
+## إعداد النطاق
 
-## Tests
+القائمة فارغة افتراضيًا، لذلك تُمنع طلبات HTTP حتى تضيف نطاقًا مصرحًا به. مثال:
 
-Run the local test suite with the standard library:
+```yaml
+scope:
+  allowed_domains:
+    - example.com
+  allowed_urls: []
+```
+
+`allowed_domains` يسمح بالنطاق والنطاقات الفرعية المطابقة، وعلى منافذ HTTP/HTTPS الافتراضية فقط. لاستخدام منفذ غير افتراضي أضف URL دقيقًا إلى `allowed_urls`. تظل الأدوات مقيدة بقيودها الداخلية: الاستطلاع لا يغادر أصل البداية، ولا أداة تتبع التحويلات، وفاحص الصفحة يزيل query وfragment قبل الطلب؛ لذلك يجب أن يكون عنوان الطلب الناتج داخل النطاق أيضًا.
+
+## الاختبارات
 
 ```bash
 python -m unittest discover -s tests -v
 ```
 
-Tests use synthetic inputs and a local HTTP server; they do not contact external targets.
+الاختبارات تستخدم بيانات اصطناعية وخوادم `localhost` فقط، ولا تتصل بأهداف خارجية. اختبار Chromium يتخطى نفسه عند غياب Playwright أو المتصفح. شغّل الاختبارات بعد تثبيت `requirements-browser.txt` وChromium للتحقق من التكامل كاملًا.
 
-## License
+## الترخيص
 
-MIT. See [LICENSE](LICENSE).
+MIT. راجع [LICENSE](LICENSE).

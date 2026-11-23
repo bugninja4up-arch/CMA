@@ -7,6 +7,7 @@ import re
 import sys
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit, urlunsplit
 
 try:
     import yaml
@@ -36,6 +37,23 @@ def _redact_payload(value: Any) -> Any:
     return value
 
 
+def _redact_url(value: str) -> str:
+    """Show the target path but never query, fragment, or URL credentials."""
+    try:
+        parts = urlsplit(value)
+        if parts.scheme.lower() not in {"http", "https"} or not parts.hostname:
+            return "[URL غير صالح أو مخفي]"
+        host = parts.hostname
+        if ":" in host and not host.startswith("["):
+            host = f"[{host}]"
+        port = parts.port
+        default_port = 443 if parts.scheme.lower() == "https" else 80
+        authority = host if port in (None, default_port) else f"{host}:{port}"
+        return urlunsplit((parts.scheme.lower(), authority, parts.path or "/", "", ""))
+    except (TypeError, ValueError):
+        return "[URL غير صالح أو مخفي]"
+
+
 def load_config(path: Path = PROJECT_DIR / "config.yaml") -> dict[str, Any]:
     """Load the YAML configuration file."""
     with path.open("r", encoding="utf-8") as config_file:
@@ -52,6 +70,8 @@ def approve_tool_call(name: str, arguments: dict[str, Any]) -> bool:
     for key, value in arguments.items():
         if key == "source" and isinstance(value, str):
             display = f"[محتوى محلي مخفي؛ {len(value)} حرفًا]"
+        elif key == "url" and isinstance(value, str):
+            display = _redact_url(value)
         elif key == "payload_json" and isinstance(value, str):
             try:
                 parsed = json.loads(value)
@@ -63,6 +83,10 @@ def approve_tool_call(name: str, arguments: dict[str, Any]) -> bool:
         print(f"  {key}: {display}")
     if name == "mutate_and_fuzz_request":
         print("  ملاحظة: قد ترسل الأداة حتى 4 طلبات HTTP إلى العنوان أعلاه؛ لا تتبع التحويلات.")
+    elif name == "crawl_site":
+        print("  ملاحظة: حتى 5 طلبات GET متتابعة للأصل نفسه، بفاصل زمني؛ لا تتبع التحويلات أو ترسل النماذج.")
+    elif name == "inspect_page":
+        print("  ملاحظة: طلب GET واحد بعد حذف query/fragment؛ جسم أقصاه 256 KiB؛ لا JavaScript أو موارد خارجية أو إرسال نماذج.")
     elif name == "analyze_javascript":
         print("  ملاحظة: تحليل محلي للنص فقط؛ لا تُرسل طلبات شبكة.")
     try:

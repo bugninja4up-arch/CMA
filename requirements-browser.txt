@@ -1,0 +1,5 @@
+# Optional dependency for tools.browser_engine; the base application does not require it.
+playwright>=1.48,<2
+
+# After installing this file, install the matching Chromium browser with:
+#   python -m playwright install chromium

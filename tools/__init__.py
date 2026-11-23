@@ -1,4 +1,4 @@
-"""Tool schemas and safe dispatch for the agent."""
+"""Tool schemas and fail-closed dispatch for the agent."""
 from __future__ import annotations
 
 import json
@@ -6,8 +6,10 @@ import re
 from pathlib import Path
 from typing import Any
 
+from tools.browser_engine import inspect_page
 from tools.differential_engine import mutate_and_fuzz_request
 from tools.js_analyzer import analyze_javascript_source
+from tools.recon_engine import crawl_site
 
 TOOL_SCHEMAS = [
     {
@@ -15,10 +17,9 @@ TOOL_SCHEMAS = [
         "function": {
             "name": "mutate_and_fuzz_request",
             "description": (
-                "Send one baseline plus up to three JSON type-substitution requests "
-                "to an explicitly in-scope HTTP endpoint. The call requires human "
-                "approval, follows no redirects, sends no cookies, and returns "
-                "response fingerprints rather than bodies."
+                "Send one baseline plus at most three JSON type-substitution requests "
+                "to one explicitly scoped HTTP endpoint. Requires human approval; "
+                "GET/POST only, no cookies, no redirects, bounded bodies, fingerprints only."
             ),
             "parameters": {
                 "type": "object",
@@ -42,11 +43,55 @@ TOOL_SCHEMAS = [
     {
         "type": "function",
         "function": {
+            "name": "crawl_site",
+            "description": (
+                "Inventory up to five same-origin, explicitly scoped HTML pages using "
+                "sequential GET requests. Requires human approval. Does not follow redirects, "
+                "submit forms, send cookies/auth, return bodies, or preserve discovered query strings."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "url": {"type": "string", "description": "In-scope starting URL."},
+                    "max_pages": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 5,
+                        "description": "Maximum pages to fetch (hard limit: 5).",
+                    },
+                },
+                "required": ["url"],
+                "additionalProperties": False,
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "inspect_page",
+            "description": (
+                "Make one bounded GET to an explicitly scoped URL, then inspect the captured "
+                "HTML snapshot offline in Chromium. Requires human approval. Strips query/fragment; "
+                "does not follow redirects, run JavaScript, fetch page resources, submit forms, "
+                "send cookies/auth, or return the body. Requires optional Playwright+Chromium."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "url": {"type": "string", "description": "In-scope page URL."},
+                },
+                "required": ["url"],
+                "additionalProperties": False,
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "analyze_javascript",
             "description": (
-                "Analyze caller-provided JavaScript text offline for API-like "
-                "endpoint strings and potential secret literals. Makes no network "
-                "requests and never returns matched secret values."
+                "Analyze caller-provided JavaScript text offline for API-like endpoint strings "
+                "and potential secret literals. Makes no network requests and never returns matched secret values."
             ),
             "parameters": {
                 "type": "object",
@@ -102,7 +147,7 @@ def execute_tool(
     *,
     scope: dict[str, Any] | None = None,
 ) -> str:
-    """Dispatch only declared tools; active HTTP use fails closed without scope."""
+    """Dispatch declared tools; all active HTTP use independently fails closed without scope."""
     if isinstance(arguments, str):
         try:
             parsed = json.loads(arguments)
@@ -133,6 +178,21 @@ def execute_tool(
             payload_json=parsed["payload_json"],
             scope=scope,
         )
+        return json.dumps(result, ensure_ascii=False)
+
+    if name == "crawl_site":
+        if set(parsed) not in ({"url"}, {"url", "max_pages"}) or not isinstance(parsed.get("url"), str):
+            return json.dumps({"error": "Expected url and optional integer max_pages."})
+        max_pages = parsed.get("max_pages", 5)
+        if isinstance(max_pages, bool) or not isinstance(max_pages, int):
+            return json.dumps({"error": "max_pages must be an integer from 1 to 5."})
+        result = crawl_site(parsed["url"], scope=scope, max_pages=max_pages)
+        return json.dumps(result, ensure_ascii=False)
+
+    if name == "inspect_page":
+        if set(parsed) != {"url"} or not isinstance(parsed.get("url"), str):
+            return json.dumps({"error": "Expected exactly one string field: url."})
+        result = inspect_page(parsed["url"], scope=scope)
         return json.dumps(result, ensure_ascii=False)
 
     if name == "analyze_javascript":

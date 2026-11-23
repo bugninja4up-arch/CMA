@@ -36,6 +36,24 @@ class ApprovalDisplayTests(unittest.TestCase):
         self.assertNotIn(source_marker, output.getvalue())
         self.assertIn("تحليل محلي للنص فقط", output.getvalue())
 
+    def test_page_inspection_approval_redacts_query_and_fragment(self):
+        marker = "APPROVAL_QUERY_SECRET_MARKER"
+        arguments = {
+            "url": f"https://example.test/account?access_token={marker}#private",
+        }
+        output = io.StringIO()
+        with patch("builtins.input", return_value="n"), redirect_stdout(output):
+            approved = approve_tool_call("inspect_page", arguments)
+
+        shown = output.getvalue()
+        self.assertFalse(approved)
+        self.assertIn("https://example.test/account", shown)
+        self.assertNotIn(marker, shown)
+        self.assertNotIn("access_token", shown)
+        self.assertNotIn("#private", shown)
+        self.assertIn("طلب GET واحد", shown)
+        self.assertIn("لا JavaScript", shown)
+
 
 if __name__ == "__main__":
     unittest.main()
