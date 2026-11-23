@@ -70,7 +70,9 @@ def approve_tool_call(name: str, arguments: dict[str, Any]) -> bool:
     for key, value in arguments.items():
         if key == "source" and isinstance(value, str):
             display = f"[محتوى محلي مخفي؛ {len(value)} حرفًا]"
-        elif key == "url" and isinstance(value, str):
+        elif key == "findings_json" and isinstance(value, str):
+            display = f"[ملخص أدلة محلي مخفي؛ {len(value)} حرفًا]"
+        elif key in {"url", "base_url"} and isinstance(value, str):
             display = _redact_url(value)
         elif key == "payload_json" and isinstance(value, str):
             try:
@@ -89,6 +91,10 @@ def approve_tool_call(name: str, arguments: dict[str, Any]) -> bool:
         print("  ملاحظة: طلب GET واحد بعد حذف query/fragment؛ جسم أقصاه 256 KiB؛ لا JavaScript أو موارد خارجية أو إرسال نماذج.")
     elif name == "analyze_javascript":
         print("  ملاحظة: تحليل محلي للنص فقط؛ لا تُرسل طلبات شبكة.")
+    elif name == "evaluate_local_lab_chain":
+        print("  ملاحظة: حتى 5 طلبات HTTP ثابتة إلى 127.0.0.1 فقط؛ لا تحويلات أو اتصال خارجي، ويُحجب الرمز الاصطناعي من الأدلة.")
+    elif name == "build_attack_chain_matrix":
+        print("  ملاحظة: تحليل محلي بلا شبكة؛ يربط الاعتماديات الصريحة فقط ولا يرفع فرضية إلى ثغرة مؤكدة.")
     try:
         answer = input("الموافقة على هذا الاستدعاء؟ [y/N]: ").strip().lower()
     except EOFError:

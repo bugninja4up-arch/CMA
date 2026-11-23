@@ -33,6 +33,8 @@ class ToolIntegrationTests(unittest.TestCase):
         names = {schema["function"]["name"] for schema in TOOL_SCHEMAS}
         self.assertIn("crawl_site", names)
         self.assertIn("inspect_page", names)
+        self.assertIn("build_attack_chain_matrix", names)
+        self.assertIn("evaluate_local_lab_chain", names)
 
     def test_crawl_requires_approval_then_dispatches_with_configured_scope(self):
         url = "https://example.test/"
@@ -67,6 +69,46 @@ class ToolIntegrationTests(unittest.TestCase):
         self.assertFalse(crawl["executed"])
         self.assertEqual(inspect["status"], "blocked")
         self.assertFalse(inspect["executed"])
+
+    def test_chain_matrix_is_offline_and_requires_explicit_human_approval(self):
+        finding = {
+            "id": "F-1",
+            "title": "Local synthetic access control issue",
+            "status": "confirmed",
+            "evidence": ["HTTP 200 in the owned local lab."],
+            "impact": "Synthetic lab record disclosure.",
+        }
+        agent, approvals = self.make_agent({})
+
+        result = json.loads(agent._dispatch_tool(
+            "build_attack_chain_matrix",
+            json.dumps({"findings_json": json.dumps([finding])}),
+        ))
+
+        self.assertEqual(result["status"], "completed")
+        self.assertEqual(result["chain_count"], 0)
+        self.assertEqual([name for name, _ in approvals], ["build_attack_chain_matrix"])
+
+    def test_local_lab_evaluation_requires_approval_and_dispatches_exact_origin(self):
+        base_url = "http://127.0.0.1:8765"
+        agent, approvals = self.make_agent({})
+        with patch("tools.evaluate_local_saas_chain", return_value={"status": "completed", "executed": True}) as evaluate:
+            result = json.loads(agent._dispatch_tool("evaluate_local_lab_chain", json.dumps({"base_url": base_url})))
+
+        self.assertEqual(result["status"], "completed")
+        self.assertEqual([name for name, _ in approvals], ["evaluate_local_lab_chain"])
+        evaluate.assert_called_once_with(base_url)
+
+    def test_local_lab_evaluation_is_not_run_when_approval_is_denied(self):
+        agent, approvals = self.make_agent({}, approved=False)
+        with patch("tools.evaluate_local_saas_chain") as evaluate:
+            result = json.loads(agent._dispatch_tool(
+                "evaluate_local_lab_chain",
+                json.dumps({"base_url": "http://127.0.0.1:8765"}),
+            ))
+        self.assertEqual(result["status"], "not_approved")
+        self.assertEqual([name for name, _ in approvals], ["evaluate_local_lab_chain"])
+        evaluate.assert_not_called()
 
 
 if __name__ == "__main__":

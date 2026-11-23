@@ -74,6 +74,10 @@ The crawl tool can send at most five sequential same-origin GET requests to scop
 The page inspector sends one bounded GET and inspects an offline HTML snapshot; JavaScript,
 redirects, page resources, cookies, and form submissions are disabled.
 The JavaScript analyzer is offline and only examines source text supplied to it.
+The local-lab evaluator is restricted in code to http://127.0.0.1, uses at most
+five bounded requests against the fixed synthetic CMA lab routes, and suppresses
+the fake integration bearer from all evidence and output.
+The attack-chain matrix links only explicit dependency IDs and never upgrades unverified evidence.
 Only discuss or plan testing for explicitly configured in-scope targets. Do not
 claim that a test, scan, request, or vulnerability was performed or confirmed
 unless the available tool actually did so. Clearly distinguish hypotheses from
@@ -125,6 +129,8 @@ invent evidence, findings, or authorization.
             "crawl_site",
             "inspect_page",
             "analyze_javascript",
+            "evaluate_local_lab_chain",
+            "build_attack_chain_matrix",
         }:
             return json.dumps({"error": f"Unknown tool: {name}"})
         if name in {"mutate_and_fuzz_request", "crawl_site", "inspect_page"}:

@@ -7,9 +7,11 @@ from pathlib import Path
 from typing import Any
 
 from tools.browser_engine import inspect_page
+from tools.chain_engine import build_attack_chain_matrix
 from tools.differential_engine import mutate_and_fuzz_request
 from tools.js_analyzer import analyze_javascript_source
 from tools.recon_engine import crawl_site
+from labs.local_web_lab.evaluation import evaluate_local_saas_chain
 
 TOOL_SCHEMAS = [
     {
@@ -109,6 +111,52 @@ TOOL_SCHEMAS = [
     {
         "type": "function",
         "function": {
+            "name": "evaluate_local_lab_chain",
+            "description": (
+                "Run the fixed synthetic tenant-export/report exercise against the CMA lab on "
+                "127.0.0.1 only. Requires human approval, makes at most five bounded local HTTP "
+                "requests, follows no redirects, never accepts a non-loopback host, suppresses the "
+                "fake integration bearer, and returns an evidence-backed explicit attack-chain matrix."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "base_url": {
+                        "type": "string",
+                        "description": "Exact local origin, e.g. http://127.0.0.1:8765 (no path, query, or fragment).",
+                    }
+                },
+                "required": ["base_url"],
+                "additionalProperties": False,
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "build_attack_chain_matrix",
+            "description": (
+                "Build an offline matrix from structured findings. Links only explicit depends_on IDs; "
+                "does not infer chains from similar titles and confirms a chain only when every step "
+                "is confirmed with evidence. Secret-like values in summaries are redacted."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "findings_json": {
+                        "type": "string",
+                        "maxLength": 50000,
+                        "description": "JSON array of findings with id, title, status, evidence and explicit depends_on IDs.",
+                    }
+                },
+                "required": ["findings_json"],
+                "additionalProperties": False,
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "load_skill",
             "description": "Read a Markdown skill from the project's skills directory.",
             "parameters": {
@@ -199,5 +247,21 @@ def execute_tool(
         if set(parsed) != {"source"} or not isinstance(parsed.get("source"), str):
             return json.dumps({"error": "Expected exactly one string field: source."})
         return json.dumps(analyze_javascript_source(parsed["source"]), ensure_ascii=False)
+
+    if name == "evaluate_local_lab_chain":
+        if set(parsed) != {"base_url"} or not isinstance(parsed.get("base_url"), str):
+            return json.dumps({"error": "Expected exactly one string field: base_url."})
+        return json.dumps(evaluate_local_saas_chain(parsed["base_url"]), ensure_ascii=False)
+
+    if name == "build_attack_chain_matrix":
+        if set(parsed) != {"findings_json"} or not isinstance(parsed.get("findings_json"), str):
+            return json.dumps({"error": "Expected exactly one string field: findings_json."})
+        if len(parsed["findings_json"]) > 50_000:
+            return json.dumps({"status": "invalid_input", "error": "findings_json exceeds 50000 characters."})
+        try:
+            findings = json.loads(parsed["findings_json"])
+        except json.JSONDecodeError:
+            return json.dumps({"status": "invalid_input", "error": "findings_json must be valid JSON."})
+        return json.dumps(build_attack_chain_matrix(findings), ensure_ascii=False)
 
     return json.dumps({"error": f"Unknown tool: {name}"})
