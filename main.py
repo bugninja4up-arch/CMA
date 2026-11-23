@@ -22,7 +22,7 @@ from db_manager import DBManager
 
 
 PROJECT_DIR = Path(__file__).resolve().parent
-SENSITIVE_KEY = re.compile(r"(?i)(?:secret|password|token|api[_-]?key|authorization|cookie)")
+SENSITIVE_KEY = re.compile(r"(?i)(?:secret|password|token|api[_-]?key|authorization|cookie|invite[_-]?(?:code|token))")
 
 
 def _redact_payload(value: Any) -> Any:
@@ -84,7 +84,12 @@ def approve_tool_call(name: str, arguments: dict[str, Any]) -> bool:
             display = value
         print(f"  {key}: {display}")
     if name == "mutate_and_fuzz_request":
-        print("  ملاحظة: قد ترسل الأداة حتى 4 طلبات HTTP إلى العنوان أعلاه؛ لا تتبع التحويلات.")
+        if arguments.get("baseline_only"):
+            print("  ملاحظة: سيُرسل طلب HTTP واحد فقط؛ لا تتبع الأداة التحويلات.")
+        else:
+            print("  ملاحظة: قد ترسل الأداة حتى 4 طلبات HTTP إلى العنوان أعلاه؛ لا تتبع التحويلات.")
+        if arguments.get("lab_actor"):
+            print("  ملاحظة: هذه هوية اصطناعية للاب؛ يقبلها المحرك فقط على مسارات CMA المحلية المحددة عبر IP loopback حرفي.")
     elif name == "crawl_site":
         print("  ملاحظة: حتى 5 طلبات GET متتابعة للأصل نفسه، بفاصل زمني؛ لا تتبع التحويلات أو ترسل النماذج.")
     elif name == "inspect_page":

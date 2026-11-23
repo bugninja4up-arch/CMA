@@ -7,7 +7,7 @@ import os
 from typing import Any, Callable
 
 from tools import TOOL_SCHEMAS, execute_tool
-from tools.scope import is_url_in_scope, normalize_http_url
+from tools.scope import is_cma_lab_url, is_url_in_scope, normalize_http_url
 
 
 class AIProvider:
@@ -77,6 +77,8 @@ The JavaScript analyzer is offline and only examines source text supplied to it.
 The local-lab evaluator is restricted in code to http://127.0.0.1, uses at most
 five bounded requests against the fixed synthetic CMA lab routes, and suppresses
 the fake integration bearer from all evidence and output.
+The optional invitation-lab actor is synthetic and accepted only on the CMA
+invitation and tenant billing-export routes over literal loopback IP URLs.
 The attack-chain matrix links only explicit dependency IDs and never upgrades unverified evidence.
 Only discuss or plan testing for explicitly configured in-scope targets. Do not
 claim that a test, scan, request, or vulnerability was performed or confirmed
@@ -141,6 +143,18 @@ invent evidence, findings, or authorization.
                         "status": "blocked",
                         "executed": False,
                         "message": "Target is not in the explicitly configured scope.",
+                    }
+                )
+            if (
+                name == "mutate_and_fuzz_request"
+                and arguments.get("lab_actor") is not None
+                and not is_cma_lab_url(url)
+            ):
+                return json.dumps(
+                    {
+                        "status": "blocked",
+                        "executed": False,
+                        "message": "Synthetic lab identities can only be used on the CMA lab API routes over literal loopback IP URLs.",
                     }
                 )
         if self.approval_callback is None or not self.approval_callback(name, arguments):

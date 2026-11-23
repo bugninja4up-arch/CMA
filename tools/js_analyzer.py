@@ -14,7 +14,7 @@ _ROUTE_LITERAL = re.compile(
     re.IGNORECASE,
 )
 _SECRET_ASSIGNMENT = re.compile(
-    r"(?i)\b(?P<name>api[_-]?key|client[_-]?secret|access[_-]?token|password)\b"
+    r"(?i)\b(?P<name>api[_-]?key|client[_-]?secret|access[_-]?token|password|invite[_-]?(?:code|token))\b"
     r"\s*[:=]\s*(?P<quote>[\"'])(?P<value>[^\"']{8,})(?P=quote)"
 )
 _RECOGNIZABLE_TOKEN = re.compile(

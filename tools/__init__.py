@@ -8,7 +8,7 @@ from typing import Any
 
 from tools.browser_engine import inspect_page
 from tools.chain_engine import build_attack_chain_matrix
-from tools.differential_engine import mutate_and_fuzz_request
+from tools.differential_engine import LAB_ACTORS, mutate_and_fuzz_request
 from tools.js_analyzer import analyze_javascript_source
 from tools.recon_engine import crawl_site
 from labs.local_web_lab.evaluation import evaluate_local_saas_chain
@@ -21,7 +21,8 @@ TOOL_SCHEMAS = [
             "description": (
                 "Send one baseline plus at most three JSON type-substitution requests "
                 "to one explicitly scoped HTTP endpoint. Requires human approval; "
-                "GET/POST only, no cookies, no redirects, bounded bodies, fingerprints only."
+                "GET/POST only, no cookies, no redirects, bounded bodies, fingerprints only. "
+                "Synthetic lab actors are limited to the CMA lab API routes over literal loopback IP URLs."
             ),
             "parameters": {
                 "type": "object",
@@ -34,7 +35,16 @@ TOOL_SCHEMAS = [
                     },
                     "payload_json": {
                         "type": "string",
-                        "description": "Non-empty JSON object sent as the request body.",
+                        "description": "JSON object; GET requires {}, POST requires a non-empty object.",
+                    },
+                    "baseline_only": {
+                        "type": "boolean",
+                        "description": "If true, send exactly one baseline request and no mutations.",
+                    },
+                    "lab_actor": {
+                        "type": "string",
+                        "enum": sorted(LAB_ACTORS),
+                        "description": "Synthetic actor for the CMA invitation lab; requires a lab API route on literal loopback IP.",
                     },
                 },
                 "required": ["url", "method", "payload_json"],
@@ -214,17 +224,24 @@ def execute_tool(
 
     if name == "mutate_and_fuzz_request":
         required = {"url", "method", "payload_json"}
-        if set(parsed) != required or not all(
-            isinstance(parsed.get(field), str) for field in required
+        optional = {"baseline_only", "lab_actor"}
+        if (
+            not required.issubset(parsed)
+            or set(parsed) - required - optional
+            or not all(isinstance(parsed.get(field), str) for field in required)
+            or ("baseline_only" in parsed and not isinstance(parsed["baseline_only"], bool))
+            or ("lab_actor" in parsed and not isinstance(parsed["lab_actor"], str))
         ):
             return json.dumps(
-                {"error": "Expected exactly three string fields: url, method, payload_json."}
+                {"error": "Expected url, method, payload_json, and only valid optional lab fields."}
             )
         result = mutate_and_fuzz_request(
             url=parsed["url"],
             method=parsed["method"],
             payload_json=parsed["payload_json"],
             scope=scope,
+            baseline_only=parsed.get("baseline_only", False),
+            lab_actor=parsed.get("lab_actor"),
         )
         return json.dumps(result, ensure_ascii=False)
 
