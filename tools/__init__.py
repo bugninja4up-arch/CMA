@@ -147,8 +147,10 @@ TOOL_SCHEMAS = [
             "name": "build_attack_chain_matrix",
             "description": (
                 "Build an offline matrix from structured findings. Links only explicit depends_on IDs; "
-                "does not infer chains from similar titles and confirms a chain only when every step "
-                "is confirmed with evidence. Secret-like values in summaries are redacted."
+                "does not infer chains from similar titles. A confirmed step must include a non-empty impact statement and evidence plus "
+                "passed reproduction, concrete-impact, and negative-control checks, each referencing "
+                "one-based evidence indexes. This formatter does not execute tests or verify artifacts. "
+                "Secret-like values are redacted."
             ),
             "parameters": {
                 "type": "object",
@@ -156,7 +158,7 @@ TOOL_SCHEMAS = [
                     "findings_json": {
                         "type": "string",
                         "maxLength": 50000,
-                        "description": "JSON array of findings with id, title, status, evidence and explicit depends_on IDs.",
+                        "description": "JSON findings with id, title, status, evidence, explicit depends_on IDs, and verification checks. For confirmed status, provide reproduction/impact/negative_control objects with passed=true and evidence=[one-based indexes] into the evidence array.",
                     }
                 },
                 "required": ["findings_json"],

@@ -35,6 +35,12 @@ class ToolIntegrationTests(unittest.TestCase):
         self.assertIn("inspect_page", names)
         self.assertIn("build_attack_chain_matrix", names)
         self.assertIn("evaluate_local_lab_chain", names)
+        matrix_schema = next(
+            schema["function"] for schema in TOOL_SCHEMAS
+            if schema["function"]["name"] == "build_attack_chain_matrix"
+        )
+        self.assertIn("negative-control", matrix_schema["description"])
+        self.assertIn("one-based evidence indexes", matrix_schema["description"])
 
     def test_crawl_requires_approval_then_dispatches_with_configured_scope(self):
         url = "https://example.test/"
@@ -75,7 +81,12 @@ class ToolIntegrationTests(unittest.TestCase):
             "id": "F-1",
             "title": "Local synthetic access control issue",
             "status": "confirmed",
-            "evidence": ["HTTP 200 in the owned local lab."],
+            "evidence": ["Reproduction returned HTTP 200.", "Synthetic record was disclosed.", "Unauthenticated control returned HTTP 401."],
+            "verification": {
+                "reproduction": {"passed": True, "evidence": [1]},
+                "impact": {"passed": True, "evidence": [2]},
+                "negative_control": {"passed": True, "evidence": [3]},
+            },
             "impact": "Synthetic lab record disclosure.",
         }
         agent, approvals = self.make_agent({})

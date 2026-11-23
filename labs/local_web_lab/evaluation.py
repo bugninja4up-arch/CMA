@@ -161,6 +161,11 @@ def evaluate_local_saas_chain(base_url: str) -> dict[str, Any]:
                 "With the synthetic tenant-red analyst session, GET /api/exports/export-blue-q4 returned HTTP 200 and export tenant_id tenant-blue.",
                 "The export contained a clearly labeled synthetic integration bearer; its value was discarded and is not included in evidence.",
             ],
+            "verification": {
+                "reproduction": {"passed": True, "evidence": [2]},
+                "impact": {"passed": True, "evidence": [2]},
+                "negative_control": {"passed": True, "evidence": [1]},
+            },
             "capability_gain": "Read another tenant's synthetic export and obtain its fake downstream integration credential.",
             "impact": "Cross-tenant disclosure of fabricated export records within the local lab only.",
             "remediation": ["Authorize every export read against the authenticated principal's tenant.", "Do not embed bearer credentials in export data; scope downstream credentials to one tenant and purpose."],
@@ -177,6 +182,11 @@ def evaluate_local_saas_chain(base_url: str) -> dict[str, Any]:
                 "Using the synthetic export's fake bearer with requested tenant_id tenant-red returned HTTP 200.",
                 "The response identified tenant_id tenant-blue and report_id blue-q4; the bearer value was not copied to the response or evidence.",
             ],
+            "verification": {
+                "reproduction": {"passed": True, "evidence": [2]},
+                "impact": {"passed": True, "evidence": [3]},
+                "negative_control": {"passed": True, "evidence": [1]},
+            },
             "capability_gain": "Use the recovered synthetic integration credential to read a second tenant's report.",
             "impact": "A reproducible two-step cross-tenant access chain over synthetic data on loopback only.",
             "remediation": ["Bind every report request to the authenticated tenant and validate tenant_id server-side.", "Use audience-, tenant-, and purpose-scoped short-lived credentials with least privilege."],

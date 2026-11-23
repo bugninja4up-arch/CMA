@@ -39,6 +39,14 @@ class LocalLabEvaluationTests(unittest.TestCase):
         self.assertEqual(chain["status"], "confirmed")
         self.assertEqual(chain["finding_ids"], ["LAB-F1", "LAB-F2"])
         self.assertEqual(result["matrix"]["attack_chain_matrix"][1]["depends_on"], ["LAB-F1"])
+        for step in chain["steps"]:
+            self.assertEqual(step["status"], "confirmed")
+            self.assertTrue(step["verification"]["reproduction"]["passed"])
+            self.assertTrue(step["verification"]["impact"]["passed"])
+            self.assertTrue(step["verification"]["negative_control"]["passed"])
+            for check in step["verification"].values():
+                self.assertTrue(check["evidence"])
+                self.assertTrue(all(1 <= index <= len(step["evidence"]) for index in check["evidence"]))
         self.assertNotIn(lab_server._FAKE_INTEGRATION_BEARER, rendered)
         self.assertNotIn("bearer_token", rendered)
 

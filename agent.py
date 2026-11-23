@@ -79,7 +79,10 @@ five bounded requests against the fixed synthetic CMA lab routes, and suppresses
 the fake integration bearer from all evidence and output.
 The optional invitation-lab actor is synthetic and accepted only on the CMA
 invitation and tenant billing-export routes over literal loopback IP URLs.
-The attack-chain matrix links only explicit dependency IDs and never upgrades unverified evidence.
+The attack-chain matrix links only explicit dependency IDs. Never label a step confirmed
+unless a successful reproduction, concrete impact, and passing negative control are all
+recorded and each check points to supplied evidence. The matrix tool validates this
+structure only; it does not run tests or authenticate evidence artifacts.
 Only discuss or plan testing for explicitly configured in-scope targets. Do not
 claim that a test, scan, request, or vulnerability was performed or confirmed
 unless the available tool actually did so. Clearly distinguish hypotheses from
