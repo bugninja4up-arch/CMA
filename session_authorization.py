@@ -5,7 +5,7 @@ import json
 from typing import Any, Callable
 from urllib.parse import urlsplit, urlunsplit
 
-SESSION_HTTP_BUDGET = 100
+SESSION_HTTP_BUDGET: int | None = None
 REMOTE_HTTP_TOOLS = frozenset({"mutate_and_fuzz_request", "crawl_site", "inspect_page"})
 
 
@@ -66,12 +66,14 @@ class SessionAuthorization:
         self,
         scope: dict[str, Any] | None,
         *,
-        budget: int = SESSION_HTTP_BUDGET,
+        budget: int | None = SESSION_HTTP_BUDGET,
         input_fn: Callable[[str], str] = input,
         output_fn: Callable[..., Any] = print,
     ) -> None:
-        if isinstance(budget, bool) or not isinstance(budget, int) or budget < 1:
-            raise ValueError("Session HTTP budget must be a positive integer.")
+        if budget is not None and (
+            isinstance(budget, bool) or not isinstance(budget, int) or budget < 1
+        ):
+            raise ValueError("Session HTTP budget must be None or a positive integer.")
         self.scope = scope if isinstance(scope, dict) else {}
         self.budget = budget
         self.remaining = budget
@@ -92,8 +94,9 @@ class SessionAuthorization:
             self.output_fn("  النطاقات المسموحة: " + ", ".join(str(item) for item in domains))
         if isinstance(urls, (list, tuple)) and urls:
             self.output_fn("  العناوين الدقيقة: " + ", ".join(_redact_url(item) for item in urls))
+        total_limit = "غير محدود" if self.budget is None else str(self.budget)
         self.output_fn(
-            f"  الحد الإجمالي للأهداف الحية: {self.budget} طلب HTTP لهذه الجلسة. "
+            f"  الحد الإجمالي للأهداف الحية: {total_limit} طلب HTTP لهذه الجلسة. "
             "الزحف حتى 5 صفحات، وفحص GET واحد، أو حتى 4 طلبات مقارنة POST؛ "
             "لا تُرسل الأداة ملفات تعريف ارتباط أو بيانات اعتماد، ولا تتبع التحويلات."
         )
@@ -113,6 +116,8 @@ class SessionAuthorization:
             return True
         if not self.authorized:
             return False
+        if self.remaining is None:
+            return True
         cost = _request_cost(name, arguments)
         if cost > self.remaining:
             self.output_fn(

@@ -59,10 +59,14 @@ def main() -> int:
         print(f"تعذر تهيئة Anomaly-Engineer: {exc}", file=sys.stderr)
         return 1
 
+    budget_status = (
+        "غير محدود ضمن النطاق المصرّح"
+        if session_authorization.budget is None
+        else f"{session_authorization.remaining}/{session_authorization.budget} طلب متبقٍ"
+    )
     print(
-        "Anomaly-Engineer — تفويض HTTP محدود لهذه الجلسة؛ "
-        f"المتبقي: {session_authorization.remaining}/{session_authorization.budget}. "
-        "اكتب exit أو quit للخروج."
+        "Anomaly-Engineer — تفويض HTTP لهذه الجلسة: "
+        f"{budget_status}. اكتب exit أو quit للخروج."
     )
     while True:
         try:
@@ -77,10 +81,11 @@ def main() -> int:
             break
         try:
             print(f"\nAnomaly-Engineer> {agent.respond(prompt)}")
-            print(
-                f"[ميزانية HTTP المتبقية: "
-                f"{session_authorization.remaining}/{session_authorization.budget}]"
-            )
+            if session_authorization.budget is not None:
+                print(
+                    f"[طلبات HTTP المتبقية: "
+                    f"{session_authorization.remaining}/{session_authorization.budget}]"
+                )
         except Exception as exc:  # Keep the REPL alive after provider/tool errors.
             print(f"تعذر إكمال الطلب: {exc}", file=sys.stderr)
     return 0
