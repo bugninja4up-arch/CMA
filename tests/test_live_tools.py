@@ -106,7 +106,7 @@ class ActiveToolTests(unittest.TestCase):
 
         denied, approvals = self.make_agent([url], approved=False)
         not_approved = json.loads(denied._dispatch_tool("mutate_and_fuzz_request", json.dumps(args)))
-        self.assertEqual(not_approved["status"], "not_approved")
+        self.assertEqual(not_approved["status"], "not_authorized")
         self.assertEqual(approvals, ["mutate_and_fuzz_request"])
         self.assertEqual(self.server.observed, [])
 

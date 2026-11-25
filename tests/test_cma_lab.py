@@ -161,7 +161,10 @@ class CMASyntheticLabTests(unittest.TestCase):
         final_text = agent.respond("اختبر رحلة العميل داخل اللاب الاصطناعي فقط.")
 
         self.assertIn("انتهى اختبار المختبر المحلي", final_text)
-        self.assertEqual(len(approvals), len(plan))
+        self.assertEqual(
+            len(approvals),
+            sum(name in {"mutate_and_fuzz_request", "crawl_site", "inspect_page"} for name, _ in plan),
+        )
         self.assertEqual(len(database.saved), 1)
         self.assertEqual(len(provider.results), len(plan))
 

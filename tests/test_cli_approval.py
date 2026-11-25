@@ -1,90 +1,78 @@
-import io
-import json
 import unittest
-from contextlib import redirect_stdout
-from unittest.mock import patch
 
-from main import approve_tool_call
+from session_authorization import SessionAuthorization
 
 
-class ApprovalDisplayTests(unittest.TestCase):
-    def test_http_approval_redacts_secret_like_json_fields(self):
-        marker = "REDACTION_TEST_MARKER_001"
+class SessionAuthorizationTests(unittest.TestCase):
+    def make_authorizer(self, scope=None, *, budget=100, answer="y"):
+        output = []
+        authorizer = SessionAuthorization(
+            scope if scope is not None else {"allowed_domains": ["example.test"]},
+            budget=budget,
+            input_fn=lambda prompt: answer,
+            output_fn=lambda *parts: output.append(" ".join(str(part) for part in parts)),
+        )
+        return authorizer, output
+
+    def test_consent_is_requested_once_for_a_visible_scope(self):
+        scope = {
+            "allowed_domains": ["example.test", "api.example.test"],
+            "allowed_urls": ["https://example.test:8443/check?token=do-not-show#fragment"],
+        }
+        authorizer, output = self.make_authorizer(scope, answer="y")
+
+        self.assertTrue(authorizer.authorize_session())
+        self.assertTrue(authorizer("crawl_site", {"url": "https://example.test/", "max_pages": 3}))
+        self.assertTrue(authorizer("inspect_page", {"url": "https://example.test/login"}))
+        self.assertEqual(authorizer.remaining, 96)
+
+        shown = "\n".join(output)
+        self.assertIn("example.test", shown)
+        self.assertIn("https://example.test:8443/check", shown)
+        self.assertNotIn("do-not-show", shown)
+        self.assertNotIn("token=", shown)
+        self.assertIn("100 طلب HTTP", shown)
+
+    def test_declined_session_blocks_remote_requests(self):
+        authorizer, _ = self.make_authorizer(answer="n")
+        self.assertFalse(authorizer.authorize_session())
+        self.assertFalse(authorizer("inspect_page", {"url": "https://example.test/"}))
+        self.assertEqual(authorizer.remaining, 100)
+
+    def test_empty_scope_does_not_prompt_and_stays_disabled(self):
+        authorizer = SessionAuthorization(
+            {"allowed_domains": [], "allowed_urls": []},
+            input_fn=lambda _: self.fail("must not prompt without a scope"),
+            output_fn=lambda *_: None,
+        )
+        self.assertFalse(authorizer.authorize_session())
+        self.assertFalse(authorizer("crawl_site", {"url": "https://example.test/"}))
+
+    def test_cumulative_budget_stops_calls_before_the_tool_runs(self):
+        authorizer, _ = self.make_authorizer(budget=5)
+        self.assertTrue(authorizer.authorize_session())
+        self.assertTrue(authorizer("crawl_site", {"url": "https://example.test/", "max_pages": 5}))
+        self.assertEqual(authorizer.remaining, 0)
+        self.assertFalse(authorizer("inspect_page", {"url": "https://example.test/"}))
+        self.assertEqual(authorizer.remaining, 0)
+
+    def test_post_mutations_reserve_their_maximum_request_count(self):
+        authorizer, _ = self.make_authorizer(budget=4)
+        self.assertTrue(authorizer.authorize_session())
         arguments = {
-            "url": "http://127.0.0.1:8080/echo",
             "method": "POST",
-            "payload_json": json.dumps(
-                {"password": marker, "role": "viewer"}
-            ),
+            "payload_json": '{"id": 1, "role": "viewer", "tenant": "a"}',
         }
-        output = io.StringIO()
-        with patch("builtins.input", return_value="n"), redirect_stdout(output):
-            approved = approve_tool_call("mutate_and_fuzz_request", arguments)
+        self.assertTrue(authorizer("mutate_and_fuzz_request", arguments))
+        self.assertEqual(authorizer.remaining, 0)
+        self.assertFalse(authorizer("inspect_page", {"url": "https://example.test/"}))
 
-        self.assertFalse(approved)
-        self.assertNotIn(marker, output.getvalue())
-        self.assertIn("[REDACTED]", output.getvalue())
-        self.assertIn("حتى 4 طلبات HTTP", output.getvalue())
-
-    def test_javascript_approval_never_prints_source(self):
-        source_marker = "SYNTHETIC_SOURCE_SHOULD_NOT_APPEAR"
-        output = io.StringIO()
-        with patch("builtins.input", return_value="n"), redirect_stdout(output):
-            approved = approve_tool_call("analyze_javascript", {"source": source_marker})
-
-        self.assertFalse(approved)
-        self.assertNotIn(source_marker, output.getvalue())
-        self.assertIn("تحليل محلي للنص فقط", output.getvalue())
-
-    def test_page_inspection_approval_redacts_query_and_fragment(self):
-        marker = "APPROVAL_QUERY_SECRET_MARKER"
-        arguments = {
-            "url": f"https://example.test/account?access_token={marker}#private",
-        }
-        output = io.StringIO()
-        with patch("builtins.input", return_value="n"), redirect_stdout(output):
-            approved = approve_tool_call("inspect_page", arguments)
-
-        shown = output.getvalue()
-        self.assertFalse(approved)
-        self.assertIn("https://example.test/account", shown)
-        self.assertNotIn(marker, shown)
-        self.assertNotIn("access_token", shown)
-        self.assertNotIn("#private", shown)
-        self.assertIn("طلب GET واحد", shown)
-        self.assertIn("لا JavaScript", shown)
-
-    def test_chain_matrix_approval_hides_evidence_payload(self):
-        marker = "APPROVAL_EVIDENCE_SECRET_MARKER"
-        findings_json = json.dumps([{
-            "id": "F-1",
-            "title": "Synthetic issue",
-            "status": "confirmed",
-            "evidence": [f"Authorization: Bearer {marker}"],
-        }])
-        output = io.StringIO()
-        with patch("builtins.input", return_value="n"), redirect_stdout(output):
-            approved = approve_tool_call("build_attack_chain_matrix", {"findings_json": findings_json})
-
-        shown = output.getvalue()
-        self.assertFalse(approved)
-        self.assertNotIn(marker, shown)
-        self.assertIn("ملخص أدلة محلي مخفي", shown)
-        self.assertIn("الاعتماديات الصريحة فقط", shown)
-
-    def test_local_lab_approval_shows_loopback_origin_without_url_query(self):
-        marker = "LOCAL_APPROVAL_QUERY_SECRET"
-        output = io.StringIO()
-        with patch("builtins.input", return_value="n"), redirect_stdout(output):
-            approved = approve_tool_call(
-                "evaluate_local_lab_chain",
-                {"base_url": f"http://127.0.0.1:8765?token={marker}"},
-            )
-        shown = output.getvalue()
-        self.assertFalse(approved)
-        self.assertIn("http://127.0.0.1:8765/", shown)
-        self.assertNotIn(marker, shown)
-        self.assertIn("حتى 5 طلبات", shown)
+    def test_local_and_offline_tools_do_not_consume_http_budget(self):
+        authorizer, _ = self.make_authorizer(scope={})
+        self.assertTrue(authorizer("analyze_javascript", {"source": "const x=1"}))
+        self.assertTrue(authorizer("build_attack_chain_matrix", {"findings_json": "[]"}))
+        self.assertTrue(authorizer("evaluate_local_lab_chain", {"base_url": "http://127.0.0.1:8765"}))
+        self.assertEqual(authorizer.remaining, 100)
 
 
 if __name__ == "__main__":

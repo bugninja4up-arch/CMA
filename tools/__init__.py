@@ -20,7 +20,8 @@ TOOL_SCHEMAS = [
             "name": "mutate_and_fuzz_request",
             "description": (
                 "Send one baseline plus at most three JSON type-substitution requests "
-                "to one explicitly scoped HTTP endpoint. Requires human approval; "
+                "to one explicitly scoped HTTP endpoint after the CLI's one-time "
+                "session authorization; "
                 "GET/POST only, no cookies, no redirects, bounded bodies, fingerprints only. "
                 "Synthetic lab actors are limited to the CMA lab API routes over literal loopback IP URLs."
             ),
@@ -58,7 +59,8 @@ TOOL_SCHEMAS = [
             "name": "crawl_site",
             "description": (
                 "Inventory up to five same-origin, explicitly scoped HTML pages using "
-                "sequential GET requests. Requires human approval. Does not follow redirects, "
+                "sequential GET requests after the CLI's one-time session authorization. "
+                "Does not follow redirects, "
                 "submit forms, send cookies/auth, return bodies, or preserve discovered query strings."
             ),
             "parameters": {
@@ -83,7 +85,8 @@ TOOL_SCHEMAS = [
             "name": "inspect_page",
             "description": (
                 "Make one bounded GET to an explicitly scoped URL, then inspect the captured "
-                "HTML snapshot offline in Chromium. Requires human approval. Strips query/fragment; "
+                "HTML snapshot offline in Chromium after the CLI's one-time session authorization. "
+                "Strips query/fragment; "
                 "does not follow redirects, run JavaScript, fetch page resources, submit forms, "
                 "send cookies/auth, or return the body. Requires optional Playwright+Chromium."
             ),
@@ -124,7 +127,7 @@ TOOL_SCHEMAS = [
             "name": "evaluate_local_lab_chain",
             "description": (
                 "Run the fixed synthetic tenant-export/report exercise against the CMA lab on "
-                "127.0.0.1 only. Requires human approval, makes at most five bounded local HTTP "
+                "127.0.0.1 only. Makes at most five bounded local HTTP "
                 "requests, follows no redirects, never accepts a non-loopback host, suppresses the "
                 "fake integration bearer, and returns an evidence-backed explicit attack-chain matrix."
             ),
