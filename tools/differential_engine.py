@@ -12,7 +12,6 @@ from urllib.parse import urlsplit
 
 from tools.scope import is_cma_lab_url, is_url_in_scope
 
-MAX_MUTATIONS = 3
 MAX_REQUEST_BYTES = 16 * 1024
 MAX_RESPONSE_BYTES = 64 * 1024
 REQUEST_TIMEOUT_SECONDS = 5
@@ -30,7 +29,7 @@ class _NoRedirectHandler(HTTPRedirectHandler):
 
 def _mutated_payloads(payload: dict[str, Any]) -> list[tuple[str, dict[str, Any]]]:
     results: list[tuple[str, dict[str, Any]]] = []
-    for key, value in list(payload.items())[:MAX_MUTATIONS]:
+    for key, value in payload.items():
         mutated = dict(payload)
         replacement: Any = None if isinstance(value, str) else MUTATION_MARKER
         mutated[key] = replacement
@@ -100,11 +99,13 @@ def mutate_and_fuzz_request(
     baseline_only: bool = False,
     lab_actor: str | None = None,
 ) -> dict[str, Any]:
-    """Send one baseline plus at most three type substitutions to a scoped URL.
+    """Send one baseline plus one type substitution for every top-level JSON field.
 
-    The caller must enforce a human approval step. The optional synthetic lab
+    The caller must enforce the CLI's one-time session authorization. The optional synthetic lab
     actor is accepted only for literal loopback IP URLs and is not a credential.
     Redirects are refused; bodies, time, and request counts are bounded.
+    Request count follows the supplied payload; each request remains size-capped,
+    sequential, paced, scoped, and redirected nowhere.
     """
     if not is_url_in_scope(url, scope):
         return {
@@ -203,7 +204,7 @@ def mutate_and_fuzz_request(
         "status": "completed",
         "executed": True,
         "request_count": len(cases),
-        "maximum_request_count": MAX_MUTATIONS + 1,
+        "maximum_request_count": len(payload) + 1,
         "cases": cases,
         "note": "Response bodies are not returned; differences are fingerprints only.",
     }

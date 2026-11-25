@@ -73,7 +73,7 @@ class ActiveToolTests(unittest.TestCase):
         )
         return agent, approvals
 
-    def test_http_tool_sends_baseline_and_at_most_three_mutations(self):
+    def test_http_tool_tests_every_top_level_field_after_baseline(self):
         url = self.base_url + "/echo"
         agent, approvals = self.make_agent([url])
         args = {
@@ -87,8 +87,8 @@ class ActiveToolTests(unittest.TestCase):
         result = json.loads(agent._dispatch_tool("mutate_and_fuzz_request", json.dumps(args)))
 
         self.assertEqual(result["status"], "completed")
-        self.assertEqual(result["request_count"], 4)
-        self.assertEqual(len(self.server.observed), 4)
+        self.assertEqual(result["request_count"], 5)
+        self.assertEqual(len(self.server.observed), 5)
         self.assertEqual(approvals, ["mutate_and_fuzz_request"])
         self.assertTrue(all(path == "/echo" for path, _ in self.server.observed))
         self.assertTrue(all(case.get("status_code") == 200 for case in result["cases"]))

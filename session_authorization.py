@@ -38,13 +38,15 @@ def _redact_url(value: object) -> str:
         return "[عنوان غير صالح]"
 
 
-def _request_cost(name: str, arguments: dict[str, Any]) -> int:
-    """Conservatively reserve the maximum number of requests a tool may send."""
+def _request_cost(name: str, arguments: dict[str, Any]) -> int | None:
+    """Reserve a known maximum, or None when the caller requests a full crawl."""
     if name == "crawl_site":
-        count = arguments.get("max_pages", 5)
+        count = arguments.get("max_pages")
+        if count is None:
+            return None
         if isinstance(count, bool) or not isinstance(count, int):
-            return 5
-        return min(5, max(1, count))
+            return 1
+        return max(1, count)
     if name == "inspect_page":
         return 1
     if name == "mutate_and_fuzz_request":
@@ -55,7 +57,7 @@ def _request_cost(name: str, arguments: dict[str, Any]) -> int:
             payload = json.loads(arguments.get("payload_json", ""))
         except (TypeError, json.JSONDecodeError):
             return 4
-        return 1 + min(3, len(payload)) if isinstance(payload, dict) else 4
+        return 1 + len(payload) if isinstance(payload, dict) else 1
     return 0
 
 
@@ -97,7 +99,8 @@ class SessionAuthorization:
         total_limit = "غير محدود" if self.budget is None else str(self.budget)
         self.output_fn(
             f"  الحد الإجمالي للأهداف الحية: {total_limit} طلب HTTP لهذه الجلسة. "
-            "الزحف حتى 5 صفحات، وفحص GET واحد، أو حتى 4 طلبات مقارنة POST؛ "
+            "الزحف GET يتابع الروابط المصرح بها حتى نفادها، واختبار POST يرسل "
+            "طلبًا أساسيًا ثم اختبار نوع لكل حقل أعلى مستوى في الحمولة؛ "
             "لا تُرسل الأداة ملفات تعريف ارتباط أو بيانات اعتماد، ولا تتبع التحويلات."
         )
         self.output_fn("  يتوقف التفويض عند إغلاق CLI، ولا يتجاوز قائمة النطاق المهيأة.")
@@ -119,6 +122,9 @@ class SessionAuthorization:
         if self.remaining is None:
             return True
         cost = _request_cost(name, arguments)
+        if cost is None:
+            self.output_fn("الزحف الكامل لا يتوافق مع ميزانية جلسة محدودة؛ عيّن max_pages أو استخدم جلسة غير محدودة.")
+            return False
         if cost > self.remaining:
             self.output_fn(
                 f"تم إيقاف الاستدعاء: يحتاج حتى {cost} طلبات، والمتبقي {self.remaining} "

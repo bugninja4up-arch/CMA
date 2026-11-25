@@ -1,23 +1,19 @@
-"""Bounded, GET-only HTML inventory crawler for explicitly scoped targets."""
+"""GET-only HTML inventory crawler for explicitly scoped targets."""
 from __future__ import annotations
 
 import http.client
 import time
+from collections import deque
 from html.parser import HTMLParser
 from typing import Any
 from urllib.parse import quote, urljoin, urlsplit, urlunsplit
 
 from tools.scope import is_url_in_scope
 
-_MAX_PAGES = 5
 _MAX_RESPONSE_BYTES = 256 * 1024
 _REQUEST_TIMEOUT = 4.0
 _REQUEST_INTERVAL = 0.2
 _MAX_URL_LENGTH = 4096
-_MAX_LINKS = 50
-_MAX_SCRIPTS = 50
-_MAX_FORMS = 20
-_MAX_INPUTS_PER_FORM = 30
 _MAX_TITLE_LENGTH = 200
 _USER_AGENT = "CMA/0.1 (bounded HTML inventory)"
 _NOTE = (
@@ -55,18 +51,6 @@ def _safe_http_url(value: object) -> str | None:
     netloc = host + (f":{port}" if port is not None else "")
     path = quote(parts.path or "/", safe="/%:@!$&'()*+,;=-._~")
     return urlunsplit((parts.scheme.lower(), netloc, path, "", ""))
-
-
-def _origin(url: str) -> tuple[str, str, int] | None:
-    try:
-        parts = urlsplit(url)
-        if not parts.hostname:
-            return None
-        scheme = parts.scheme.lower()
-        port = parts.port or (443 if scheme == "https" else 80)
-        return (scheme, parts.hostname.lower().rstrip("."), port)
-    except ValueError:
-        return None
 
 
 def _scope_allows(url: str, scope: dict[str, Any] | None) -> bool:
@@ -108,28 +92,24 @@ class _InventoryParser(HTMLParser):
             if src is not None:
                 self.scripts.append(src)
         elif tag == "form":
-            if len(self.forms) < _MAX_FORMS:
-                raw_method = self._attr(attrs, "method") or "GET"
-                method = raw_method.strip().upper()
-                if method not in {"GET", "POST", "DIALOG"}:
-                    method = "OTHER"
-                self._form = {
-                    "action_raw": self._attr(attrs, "action") or "",
-                    "method": method,
-                    "inputs": [],
-                }
-                self.forms.append(self._form)
-            else:
-                self._form = None
+            raw_method = self._attr(attrs, "method") or "GET"
+            method = raw_method.strip().upper()
+            if method not in {"GET", "POST", "DIALOG"}:
+                method = "OTHER"
+            self._form = {
+                "action_raw": self._attr(attrs, "action") or "",
+                "method": method,
+                "inputs": [],
+            }
+            self.forms.append(self._form)
         elif tag == "input" and self._form is not None:
             inputs = self._form["inputs"]
-            if len(inputs) < _MAX_INPUTS_PER_FORM:
-                name = self._attr(attrs, "name")
-                input_type = self._attr(attrs, "type") or "text"
-                item: dict[str, str] = {"type": input_type[:40]}
-                if name is not None:
-                    item["name"] = name[:100]
-                inputs.append(item)
+            name = self._attr(attrs, "name")
+            input_type = self._attr(attrs, "type") or "text"
+            item: dict[str, str] = {"type": input_type[:40]}
+            if name is not None:
+                item["name"] = name[:100]
+            inputs.append(item)
 
     def handle_endtag(self, tag: str) -> None:
         tag = tag.lower()
@@ -200,12 +180,15 @@ def crawl_site(
     start_url: str,
     *,
     scope: dict | None = None,
-    max_pages: int = 5,
+    max_pages: int | None = None,
 ) -> dict:
-    """Inventory a bounded set of in-scope HTML pages on the start URL's origin.
+    """Inventory HTML pages discovered through links that pass configured scope.
 
-    Only explicitly scoped HTTP(S) URLs are requested. Requests are sequential,
-    GET-only, direct (no environment proxy), and never follow redirects.
+    Only explicitly scoped HTTP(S) URLs are requested; links may cross origins
+    only when the configured allowlist permits them. Requests are sequential,
+    GET-only, direct (no environment proxy), and never follow redirects. By
+    default, crawling continues until the in-scope link queue is empty; max_pages
+    is an optional caller-selected stopping point.
     """
     base_result: dict[str, Any] = {
         "executed": False,
@@ -213,29 +196,27 @@ def crawl_site(
         "pages": [],
         "note": _NOTE,
     }
-    if isinstance(max_pages, bool) or not isinstance(max_pages, int) or not (1 <= max_pages <= _MAX_PAGES):
-        return {**base_result, "status": "invalid", "error": "max_pages must be an integer from 1 to 5."}
+    if max_pages is not None and (
+        isinstance(max_pages, bool) or not isinstance(max_pages, int) or max_pages < 1
+    ):
+        return {**base_result, "status": "invalid", "error": "max_pages must be a positive integer or null."}
 
     start = _safe_http_url(start_url)
     if start is None or not _scope_allows(start_url, scope) or not _scope_allows(start, scope):
         return {**base_result, "status": "blocked", "error": "Start URL is invalid or outside configured scope."}
-    initial_origin = _origin(start)
-    if initial_origin is None:
-        return {**base_result, "status": "blocked", "error": "Start URL is invalid or outside configured scope."}
-
-    queue = [start]
+    queue = deque([start])
     queued = {start}
     visited: set[str] = set()
     last_request_at: float | None = None
     any_network_error = False
     base_result["executed"] = True
 
-    while queue and len(visited) < max_pages and base_result["request_count"] < _MAX_PAGES:
-        url = queue.pop(0)
+    while queue and (max_pages is None or len(visited) < max_pages):
+        url = queue.popleft()
         if url in visited:
             continue
-        # Re-check both origin and configured scope immediately before each request.
-        if _origin(url) != initial_origin or not _scope_allows(url, scope):
+        # Re-check configured scope immediately before each request.
+        if not _scope_allows(url, scope):
             continue
         if last_request_at is not None:
             delay = _REQUEST_INTERVAL - (time.monotonic() - last_request_at)
@@ -281,21 +262,18 @@ def crawl_site(
                     resolved = _resolve_inventory_url(raw, url)
                     if resolved is None or resolved in safe_links:
                         continue
-                    if len(safe_links) < _MAX_LINKS:
-                        safe_links.append(resolved)
+                    safe_links.append(resolved)
                     if (
-                        _origin(resolved) == initial_origin
-                        and resolved not in queued
+                        resolved not in queued
                         and resolved not in visited
                         and _scope_allows(resolved, scope)
                     ):
                         queued.add(resolved)
-                        if len(queued) <= _MAX_PAGES:
-                            queue.append(resolved)
+                        queue.append(resolved)
                 safe_scripts: list[str] = []
                 for raw in parser.scripts:
                     resolved = _resolve_inventory_url(raw, url)
-                    if resolved is not None and resolved not in safe_scripts and len(safe_scripts) < _MAX_SCRIPTS:
+                    if resolved is not None and resolved not in safe_scripts:
                         safe_scripts.append(resolved)
                 forms: list[dict[str, Any]] = []
                 for form in parser.forms:

@@ -88,7 +88,7 @@ class ReconCrawlerTests(unittest.TestCase):
         ])
         self.assertIn("no forms submitted", result["note"])
 
-    def test_only_in_scope_same_origin_links_are_requested(self):
+    def test_only_in_scope_links_are_requested_even_across_origins(self):
         cross_server, cross_base = self.make_server(
             {"/foreign": (200, {"Content-Type": "text/html"}, b"<title>Foreign</title>")}
         )
@@ -108,13 +108,13 @@ class ReconCrawlerTests(unittest.TestCase):
             scope=self.allow(start, allowed, cross_base + "/foreign"),
         )
 
-        self.assertEqual(result["request_count"], 2)
+        self.assertEqual(result["request_count"], 3)
         self.assertEqual(local_server.requests, ["/", "/allowed"])
-        self.assertEqual(cross_server.requests, [])
+        self.assertEqual(cross_server.requests, ["/foreign"])
         self.assertNotIn("/outside", local_server.requests)
         self.assertTrue(all("?" not in page["url"] for page in result["pages"]))
 
-    def test_hard_five_page_cap_and_invalid_max_pages_fail_without_requests(self):
+    def test_default_crawl_follows_all_in_scope_pages_and_optional_limit_works(self):
         routes = {}
         server, base = self.make_server(routes)
         urls = [base + "/"] + [base + f"/p{i}" for i in range(1, 8)]
@@ -122,16 +122,43 @@ class ReconCrawlerTests(unittest.TestCase):
             next_link = f"<a href='/p{index + 1}'>next</a>" if index < 7 else ""
             routes[path] = (200, {"Content-Type": "text/html"}, next_link.encode())
 
-        invalid = crawl_site(urls[0], scope=self.allow(*urls), max_pages=6)
+        invalid = crawl_site(urls[0], scope=self.allow(*urls), max_pages=0)
         self.assertEqual(invalid["status"], "invalid")
         self.assertFalse(invalid["executed"])
         self.assertEqual(server.requests, [])
 
-        result = crawl_site(urls[0], scope=self.allow(*urls), max_pages=5)
-        self.assertEqual(result["request_count"], 5)
-        self.assertEqual(len(result["pages"]), 5)
-        self.assertEqual(len(server.requests), 5)
-        self.assertEqual(server.requests, ["/", "/p1", "/p2", "/p3", "/p4"])
+        result = crawl_site(urls[0], scope=self.allow(*urls))
+        expected_paths = ["/"] + [f"/p{i}" for i in range(1, 8)]
+        self.assertEqual(result["request_count"], 8)
+        self.assertEqual(len(result["pages"]), 8)
+        self.assertEqual(server.requests, expected_paths)
+
+        server.requests.clear()
+        limited = crawl_site(urls[0], scope=self.allow(*urls), max_pages=6)
+        self.assertEqual(limited["request_count"], 6)
+        self.assertEqual(server.requests, expected_paths[:6])
+
+    def test_inventory_does_not_truncate_links_scripts_forms_or_fields_by_count(self):
+        links = "".join(f"<a href='/path{i}'>link</a>" for i in range(60))
+        scripts = "".join(f"<script src='/asset{i}.js'></script>" for i in range(60))
+        forms = "".join(
+            "<form action='/submit'>"
+            + "".join(f"<input name='field{i}'>" for i in range(35))
+            + "</form>"
+            for _ in range(22)
+        )
+        html = f"<html>{links}{scripts}{forms}</html>".encode()
+        server, base = self.make_server({"/": (200, {"Content-Type": "text/html"}, html)})
+        start = base + "/"
+
+        result = crawl_site(start, scope=self.allow(start))
+        page = result["pages"][0]
+
+        self.assertEqual(len(page["links"]), 60)
+        self.assertEqual(len(page["scripts"]), 60)
+        self.assertEqual(len(page["forms"]), 22)
+        self.assertEqual(len(page["forms"][0]["inputs"]), 35)
+        self.assertEqual(server.requests, ["/"])
 
     def test_redirect_is_reported_but_not_followed(self):
         server, base = self.make_server(

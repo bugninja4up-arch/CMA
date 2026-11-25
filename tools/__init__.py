@@ -19,7 +19,7 @@ TOOL_SCHEMAS = [
         "function": {
             "name": "mutate_and_fuzz_request",
             "description": (
-                "Send one baseline plus at most three JSON type-substitution requests "
+                "Send one baseline plus one JSON type-substitution request per top-level payload field "
                 "to one explicitly scoped HTTP endpoint after the CLI's one-time "
                 "session authorization; "
                 "GET/POST only, no cookies, no redirects, bounded bodies, fingerprints only. "
@@ -58,8 +58,9 @@ TOOL_SCHEMAS = [
         "function": {
             "name": "crawl_site",
             "description": (
-                "Inventory up to five same-origin, explicitly scoped HTML pages using "
-                "sequential GET requests after the CLI's one-time session authorization. "
+                "Inventory explicitly scoped HTML pages using sequential GET requests, following "
+                "in-scope links across origins when permitted, until the queue is empty, after "
+                "the CLI's one-time session authorization. "
                 "Does not follow redirects, "
                 "submit forms, send cookies/auth, return bodies, or preserve discovered query strings."
             ),
@@ -70,8 +71,7 @@ TOOL_SCHEMAS = [
                     "max_pages": {
                         "type": "integer",
                         "minimum": 1,
-                        "maximum": 5,
-                        "description": "Maximum pages to fetch (hard limit: 5).",
+                        "description": "Optional caller-selected stopping point; omit to follow all discovered in-scope links.",
                     },
                 },
                 "required": ["url"],
@@ -253,9 +253,11 @@ def execute_tool(
     if name == "crawl_site":
         if set(parsed) not in ({"url"}, {"url", "max_pages"}) or not isinstance(parsed.get("url"), str):
             return json.dumps({"error": "Expected url and optional integer max_pages."})
-        max_pages = parsed.get("max_pages", 5)
-        if isinstance(max_pages, bool) or not isinstance(max_pages, int):
-            return json.dumps({"error": "max_pages must be an integer from 1 to 5."})
+        max_pages = parsed.get("max_pages")
+        if max_pages is not None and (
+            isinstance(max_pages, bool) or not isinstance(max_pages, int) or max_pages < 1
+        ):
+            return json.dumps({"error": "max_pages must be a positive integer when provided."})
         result = crawl_site(parsed["url"], scope=scope, max_pages=max_pages)
         return json.dumps(result, ensure_ascii=False)
 
